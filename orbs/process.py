@@ -5599,9 +5599,9 @@ class Spectrum(HDFCube):
             999.4000244 0.01378122438
             999.2000122 0.002538740868
 
-	atm_ext_file_path = self._get_atmospheric_extinction_file_path()
 	"""
-        
+        atm_ext_file_path = self._get_atmospheric_extinction_file_path()
+ 
         def _calibrate_spectrum_column(spectrum_col, filter_function,
                                        filter_min, filter_max,
                                        flux_calibration_function,
@@ -5625,6 +5625,7 @@ class Spectrum(HDFCube):
 
             # converting to flux (ADU/s)
             spectrum_col /= exposure_time * spectrum_col.shape[1]
+            spectrum_col /= ME
 
             # converting to ADU/s/A
             axis_step = orb.cutils.get_nm_axis_step(
@@ -5695,11 +5696,14 @@ class Spectrum(HDFCube):
                     
                 if flux_calibration_function is not None:
        		    flux_corr = flux_calibration_function(axis_corr)
-        	    atm_trans = orb.utils.photometry.get_atmospheric_transmission(atm_ext_file_path, step, order, STEP_NB, airmass=aimss, corr=corr)
-	            spectrum_highres /= ME 
-		    spectrum_highres /= atm_trans
  		    spectrum_highres /= flux_corr
-		   
+
+		# Atmospheric extinction correction for the Airmass
+		nm_axis = orb.utils.spectrum.create_nm_axis(
+        STEP_NB, step, order, corr=corr).astype(float)
+		atm_trans = orb.utils.photometry.get_atmospheric_transmission(atm_ext_file_path, step, order, STEP_NB, airmass=airmass, corr=corr)
+                
+		spectrum_highres /= atm_trans
 
                 # replacing nans by zeros before interpolation
                 nans = np.nonzero(np.isnan(spectrum_highres))
