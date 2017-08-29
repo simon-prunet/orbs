@@ -8,6 +8,7 @@
 ## This file is part of ORBS
 ##
 ## ORBS is free software: you can redistribute it and/or modify it
+## ORBS is free software: you can redistribute it and/or modify it
 ## under the terms of the GNU General Public License as published by
 ## the Free Software Foundation, either version 3 of the License, or
 ## (at your option) any later version.
@@ -52,6 +53,7 @@ from process import RawData, InterferogramMerger, Interferogram
 from process import Spectrum, CalibrationLaser
 from process import SourceExtractor, PhaseMaps, CosmicRayDetector
 from orb.astrometry import Astrometry
+import orb.core
 import orb.constants
 import orb.version
 import orb.utils.spectrum
@@ -3072,14 +3074,14 @@ class Orbs(Tools):
         # Get flux calibraton coeff
         flux_calibration_coeff = None
         if 'standard_image_path_1.hdf5' in self.options:
-            
+
             std_path = self.options['standard_image_path_1.hdf5']
             std_name = self._get_standard_name(std_path)
 
             # find the real star position
             std_x1, std_y1, fwhm_pix1 = self._find_standard_star(1)
             std_x2, std_y2, fwhm_pix2 = self._find_standard_star(2)
-            
+
             if std_x1 is not None and std_x2 is not None:
                 flux_calibration_coeff = spectrum.get_flux_calibration_coeff(
                     self.options['standard_image_path_1.hdf5'],
@@ -3092,9 +3094,8 @@ class Orbs(Tools):
                     self.options['order'],
                     self.options["filter_name"],
                     self._get_optics_file_path(self.options["filter_name"]),
-                    calibration_laser_map_path, 
-                    self.config['CALIB_NM_LASER'])
-    
+                    calibration_laser_map_path,
+                    self.config['CALIB_NM_LASER'], flux_calibration_axis, flux_calibration_vector)
         else:
             self._print_warning("Standard related options were not given or the name of the filter is unknown. Flux calibration coeff cannot be computed")
 
@@ -3103,11 +3104,28 @@ class Orbs(Tools):
         ## calibration_laser_map_path = self.indexer.get_path(
         ##     'phase_calibration_laser_map', camera_number)
 
-            
+        object_cube = HDFCube(self.options["image_list_path_1.hdf5"])
+        airmass_cube = np.zeros(object_cube.dimz)
+
+        for i in range(0,object_cube.dimz):
+
+            object_hdr = object_cube.get_frame_header(i)
+            airmass_cube[i] = object_hdr['AIRMASS']
+        airmass_mean = airmass_cube.mean()
+
+        std_cube = HDFCube(self.options["standard_image_path_1.hdf5"])
+        std_airmass_cube = np.zeros(std_cube.dimz)
+
+        for i in range(0,std_cube.dimz):
+
+            std_hdr = std_cube.get_frame_header(i)
+            std_airmass_cube[i] = std_hdr['AIRMASS']
+        std_airmass_mean = std_airmass_cube.mean()
+
         # Calibration
         spectrum.calibrate(
             self.options["filter_name"],
-            step, order,
+            step, self.options['step_number'], order,
             calibration_laser_map_path,
             self.config['CALIB_NM_LASER'],
             self.options['exp_time'],
@@ -3119,8 +3137,8 @@ class Orbs(Tools):
             wavenumber=self.options['wavenumber'],
             standard_header = self._get_calibration_standard_fits_header(),
             spectral_calibration=self.options['spectral_calibration'],
-            filter_correction=filter_correction)
-        
+            filter_correction=filter_correction, airmass=airmass_mean, std_airmass=std_airmass_mean)
+
         perf_stats = perf.print_stats()
         del perf, spectrum
         return perf_stats

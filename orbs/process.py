@@ -5519,14 +5519,14 @@ class Spectrum(HDFCube):
             del hdr['LATPOLE']
         return hdr
         
-    def calibrate(self, filter_name, step, order,
+    def calibrate(self, filter_name, step, STEP_NB, order,
                   calibration_laser_map_path, nm_laser,
                   exposure_time,
                   correct_wcs=None,
                   flux_calibration_vector=None,
                   flux_calibration_coeff=None,
                   wavenumber=False, standard_header=None,
-                  spectral_calibration=True, filter_correction=True):
+                  spectral_calibration=True, filter_correction=True, airmass=1., std_airmass=1.):
         
         """Calibrate spectrum cube: correct for filter transmission
         function, correct WCS parameters and flux calibration.
@@ -5599,7 +5599,8 @@ class Spectrum(HDFCube):
             999.4000244 0.01378122438
             999.2000122 0.002538740868
 
-        """
+	atm_ext_file_path = self._get_atmospheric_extinction_file_path()
+	"""
         
         def _calibrate_spectrum_column(spectrum_col, filter_function,
                                        filter_min, filter_max,
@@ -5609,7 +5610,7 @@ class Spectrum(HDFCube):
                                        step, order, wavenumber,
                                        spectral_calibration,
                                        base_axis_correction_coeff,
-                                       output_sz_coeff):
+                                       output_sz_coeff, STEP_NB, airmass, atm_ext_file_path, ME=.80):
             """
             
             """
@@ -5693,8 +5694,12 @@ class Spectrum(HDFCube):
                     spectrum_highres /= filter_corr
                     
                 if flux_calibration_function is not None:
-                    flux_corr = flux_calibration_function(axis_corr)
-                    spectrum_highres *= flux_corr
+       		    flux_corr = flux_calibration_function(axis_corr)
+        	    atm_trans = orb.utils.photometry.get_atmospheric_transmission(atm_ext_file_path, step, order, STEP_NB, airmass=aimss, corr=corr)
+	            spectrum_highres /= ME 
+		    spectrum_highres /= atm_trans
+ 		    spectrum_highres /= flux_corr
+		   
 
                 # replacing nans by zeros before interpolation
                 nans = np.nonzero(np.isnan(spectrum_highres))
@@ -5815,7 +5820,7 @@ class Spectrum(HDFCube):
             if not wavenumber:
                 flux_calibration_axis = orb.utils.spectrum.cm12nm(
                     flux_calibration_axis)[::-1]
-                flux_calibration_vector = flux_calibration_vector[::-1]
+                flux_calibration_vector = flux_calibration_vector[::-1] 
                 
             flux_calibration_function = interpolate.UnivariateSpline(
                 flux_calibration_axis, flux_calibration_vector, s=0, k=1)
@@ -5825,12 +5830,10 @@ class Spectrum(HDFCube):
                 mean_flux_calib_vector = orb.utils.photometry.compute_mean_star_flux(
                     flux_calibration_function(filter_axis.astype(float)),
                     filter_vector)
-                self._print_msg('Mean flux calib vector before adjustment with flux calibration coeff: {} erg/cm2/ADU'.format(mean_flux_calib_vector))
+                self._print_msg('Mean flux calib vector before adjustment with flux calibration coeff: {} '.format(mean_flux_calib_vector))
                  # ME must be taken into account only when using the
                  # flux calibration coeff derived from std images
-                flux_calibration_coeff /= modulation_efficiency
-                self._print_msg('Flux calibration coeff (corrected for modulation efficiency {}): {} erg/cm2/ADU'.format(modulation_efficiency, flux_calibration_coeff))
-                flux_calibration_vector /=  mean_flux_calib_vector
+                # flux_calibration_vector /=  mean_flux_calib_vector
                 flux_calibration_vector *= flux_calibration_coeff
                 flux_calibration_function = interpolate.UnivariateSpline(
                     flux_calibration_axis, flux_calibration_vector, s=0, k=3)
@@ -5839,8 +5842,6 @@ class Spectrum(HDFCube):
         elif flux_calibration_coeff is not None:
             # ME must be taken into account only when using the flux
             # calibration coeff derived from std images
-            flux_calibration_coeff /= modulation_efficiency
-            self._print_msg('Flux calibration coeff (corrected for modulation efficiency {}): {} erg/cm2/ADU'.format(modulation_efficiency, flux_calibration_coeff))
             flux_calibration_function = interpolate.UnivariateSpline(
                 filter_axis,
                 np.ones_like(filter_axis, dtype=float)
@@ -5925,6 +5926,7 @@ class Spectrum(HDFCube):
                     ncpus = x_max - x_min - ii
 
                 # correct spectrum columns
+	    for ijob in range(ncpus):
                 jobs = [(ijob, job_server.submit(
                     _calibrate_spectrum_column, 
                     args=(
@@ -5937,12 +5939,13 @@ class Spectrum(HDFCube):
                         nm_laser, step, order, wavenumber,
                         spectral_calibration,
                         base_axis_correction_coeff,
-                        OUTPUT_SZ_COEFF),
+                        OUTPUT_SZ_COEFF,STEP_NB,airmass,atm_ext_file_path),
                     modules=("import numpy as np",
                              "import orb.utils.spectrum",
-                             "import orb.utils.vector",
-                             "import orb.utils.fft"))) 
-                        for ijob in range(ncpus)]
+                             "import orb.utils.photometry",
+                	     "import orb.utils.vector",
+                             "import orb.utils.fft",
+			      "import orb.core")))] 
 
                 for ijob, job in jobs:
                     # corrected data comes in place of original data
@@ -6034,8 +6037,8 @@ class Spectrum(HDFCube):
                                    step, order, filter_name,
                                    optics_file_path,
                                    calibration_laser_map_path,
-                                   nm_laser):
-        """Return flux calibration coefficient in [erg/cm2/s/A]/ADU
+                                   nm_laser, flux_calibration_axis, flux_calibration_vector):
+        """Return flux calibration coefficient 
         from a set of images.
     
         :param std_spectrum_path_1: Path to the standard image list
@@ -6065,6 +6068,8 @@ class Spectrum(HDFCube):
           laser map.
 
         :param nm_laser: Calibration laser wavelength in nm.
+        
+        :param flux_calibration_vector: flux calibration vector
 
         .. note:: This calibration coefficient must be used for non
           filter-corrected data
@@ -6075,6 +6080,7 @@ class Spectrum(HDFCube):
             efficiency. This coefficient must thus be used on spectral
             data already normalized to an ME of 100%
         """
+            
         def _get_std_position(im, box_size, x, y):
             (x_min, x_max,
              y_min, y_max) = orb.utils.image.get_box_coords(
@@ -6111,6 +6117,7 @@ class Spectrum(HDFCube):
         self._print_msg('Standard image cube 2 path:{}'.format(
             std_image_cube_path_2))
 
+    
         ## Compute standard flux in erg/cm2/s/A
 
         # compute correction coeff from angle at center of the frame
@@ -6133,34 +6140,59 @@ class Spectrum(HDFCube):
                 step, order, STEP_NB,
                 wavenumber=False, corr=corr))
 
+
+        # Read information from the header of the first image on the list
+        cube1 = HDFCube(std_image_cube_path_1)
+        std_hdr = cube1.get_frame_header(0)
+        cube2 = HDFCube(std_image_cube_path_2)
+    
+        if 'EXPTIME' and 'AIRMASS' in std_hdr:
+            std_exp_time = std_hdr['EXPTIME']
+            std_airmass = std_hdr['AIRMASS']
+            # Spectral axis must be the same as that of flux_calibration_vector, filter_function
+            std_corr = corr
+            std_STEP_NB = STEP_NB
+        else: self._print_error('Integration time (EXPTIME and AIRMASS) keyword must be present in the header of the standard image {}'.format(cube1.image_list[0]))
+        self._print_msg('Standard integration time: {}s'.format(std_exp_time))
+
+        # Apply the filter transmission to the theoritical spectrum of the standard
+        th_spectrum *=  filter_function
+        
+        # Calculate the correction for the atmospheric extinction
+        atm_trans = orb.utils.photometry.get_atmospheric_transmission(self._get_atmospheric_extinction_file_path()
+            , step, order, std_STEP_NB, airmass=std_airmass, corr=std_corr)
+        
+        # Apply the atmospheric extinction to the theoritical spectrum using the airmass of the observation
+        th_spectrum *= atm_trans  
+        
+        # Correct the spectrum for the flux calibration vector
+        # First re-interpolate on local nm axis
+
+        local_cm1_axis = np.float64(orb.utils.spectrum.create_cm1_axis(STEP_NB,step,order,corr=corr))
+
+
+        flux_calibration_function = interpolate.UnivariateSpline(
+                    np.float64(flux_calibration_axis), flux_calibration_vector, s=0, k=3)
+
+        flux_calibration_vector2 = flux_calibration_function(local_cm1_axis)
+
+        th_spectrum *= flux_calibration_vector2
+        
+        # Photon flux divided by two at the beam splitter
+        # th_spectrum /= 2 
+
         # convert it to erg/cm2/s by summing all the photons
-        std_th_flux = th_spectrum * filter_function / np.nanmax(filter_function)
-        std_th_flux = np.diff(th_spectrum_axis) * 10. * std_th_flux[:-1]
-        std_th_flux = np.nansum(std_th_flux)
-
-        ## std_th_flux = orb.utils.photometry.compute_mean_star_flux(
-        ##     th_spectrum, filter_function)
-
-
-        # compute simulated flux
-        std_sim_flux = std.compute_star_flux_in_frame(
-            step, order, filter_name, 1, corr=corr)
-
+        # Compute simulated flux in counts/s
+        th_spectrum = np.diff(th_spectrum_axis) * 10. * th_spectrum[:-1]
+        std_th_flux = np.nansum(th_spectrum)
+    
         self._print_msg('Simulated star flux in one camera: {} ADU/s'.format(
-            std_sim_flux))
+            std_th_flux))
 
         ## Compute photometry in real images
         std_x1, std_y1 = std_pos_1
         std_x2, std_y2 = std_pos_2
         
-        cube1 = HDFCube(std_image_cube_path_1)
-        std_hdr = cube1.get_frame_header(0)
-        cube2 = HDFCube(std_image_cube_path_2)
-    
-        if 'EXPTIME' in std_hdr:
-            std_exp_time = std_hdr['EXPTIME']
-        else: self._print_error('Integration time (EXPTIME) keyword must be present in the header of the standard image {}'.format(cube1.image_list[0]))
-        self._print_msg('Standard integration time: {}s'.format(std_exp_time))
         
         if cube1.dimz == 1:
             self._print_warning('standard image list contains only one file')
@@ -6196,26 +6228,6 @@ class Spectrum(HDFCube):
             master_im2, std_x2, std_y2, fwhm_pix, std_exp_time)
         self._print_msg('Aperture flux of the standard star in camera 2 is {} [+/-{}] ADU/s'.format(std_flux2, std_flux_err2))
 
-        self._print_msg('Ratio of real flux/ simulated flux for camera 1: {}'.format(
-            std_flux1 / std_sim_flux))
-        self._print_msg('Ratio of real flux/ simulated flux for camera 2: {}'.format(
-            std_flux2 / std_sim_flux))
-
-
-        ## These tests do not make sense anymore as the stds are taken at ZPD starting Nov 2016
-        ## if (max(std_flux1, std_sim_flux)
-        ##     / min(std_flux1, std_sim_flux) > ERROR_FLUX_COEFF
-        ##     or max(std_flux2, std_sim_flux)
-        ##     / min(std_flux2, std_sim_flux) > ERROR_FLUX_COEFF):
-        ##     self._print_error('Measured flux is too low compared to simulated flux. There must be a problem. Check standard image files.')
-        ## if (max(std_flux1, std_flux2)
-        ##     / min(std_flux1, std_flux2)) > ERROR_STD_DIFF_COEFF:
-        ##     self._print_error('Difference between measured flux of both standards is too high')
-        ## New test compares sum of fluxes in both cameras to twice the simulated flux in one camera without modulation
-        flux_ratio = 2*std_sim_flux/(std_flux1+std_flux2)
-        if (flux_ratio > ERROR_FLUX_COEFF):
-            self._print_error('Measured flux is too low compared to simulated flux. There must be a problem. Check standard image files.')
- 
         coeff = std_th_flux / (std_flux1 + std_flux2) # erg/cm2/ADU
         
         self._print_msg('Flux calibration coeff: {} ergs/cm2/ADU'.format(coeff))
@@ -6224,7 +6236,7 @@ class Spectrum(HDFCube):
         
 
     def get_flux_calibration_vector(self, std_spectrum_path, std_name,
-                                    filter_name):
+                                    filter_name, ME=.80, std_airmass=1.):
         """
         Return a flux calibration vector in [erg/cm^2]/ADU on the range
         corresponding to the observation parameters of the spectrum to
@@ -6267,6 +6279,7 @@ class Spectrum(HDFCube):
         std_order = hdr['ORDER']
         std_exp_time = hdr['EXPTIME']
         std_corr = hdr['AXCORR0']
+
         std_step_nb = re_spectrum.shape[0]
         std_nm_axis = orb.utils.spectrum.create_nm_axis_ireg(
             std_step_nb, std_step, std_order, corr=std_corr)
@@ -6277,19 +6290,21 @@ class Spectrum(HDFCube):
         # We must divide by the total exposition time
         re_spectrum /= std_exp_time * std_step_nb # ADU -> ADU/s
 
-        # Real spectrum is converted to ADU/A/s
-        std_nm_axis_reg = orb.utils.spectrum.create_nm_axis(
-            std_step_nb, std_step, std_order)
-        channel_A = np.abs(np.nanmean(np.diff(std_nm_axis_reg))) * 10.
-        re_spectrum /= channel_A
-
-        # Remove portions outside the filter
+        # Get the filter function and min,max wavelength pixels values
         (filter_function,
          filter_min_pix, filter_max_pix) = (
             FilterFile(filter_name).get_filter_function(
                 std_step, std_order, re_spectrum.shape[0],
                 corr=std_corr, wavenumber=True))
+           
 
+        # Real spectrum is converted to ADU/A/s
+        std_nm_axis_reg = orb.utils.spectrum.create_nm_axis(
+            std_step_nb, std_step, std_order)
+        channel_A = np.abs(np.nanmean(np.diff(std_nm_axis_reg))) * 10.
+        re_spectrum /= channel_A
+        
+        # Remove portions outside the filter
         re_spectrum[:filter_min_pix] = np.nan
         re_spectrum[filter_max_pix:] = np.nan
         
@@ -6303,9 +6318,25 @@ class Spectrum(HDFCube):
 
         th_spectrum[np.nonzero(np.isnan(re_spectrum))] = np.nan
 
+
+        
+        # Correction for the atmospheric extinction
+        atm_trans = orb.utils.photometry.get_atmospheric_transmission(
+            self._get_atmospheric_extinction_file_path(), std_step, std_order, std_step_nb, airmass=std_airmass, corr=std_corr)
+        
+        # Correct the spectrum for the atmospheric extinction with the airmass of the observation
+        th_spectrum *= atm_trans        
+
+        # Correct the filter transmission
+        th_spectrum *= filter_function 
+
+        # We must divide by the modulation efficiency of the standard cube
+        th_spectrum *= ME  # ADU -> ADU/s
+        
         # fit model * polynomial to adjust model and spectrum
         flux_calibf = orb.utils.photometry.fit_std_spectrum(
             re_spectrum, th_spectrum)
+        flambda = 1./flux_calibf
 
         ## import pylab as pl
         ## pl.axvline(filter_min_pix)
@@ -6323,7 +6354,7 @@ class Spectrum(HDFCube):
         self._print_msg('Mean theoretical flux of the star: %e ergs/cm^2/A/s'%orb.utils.stats.robust_mean(th_spectrum))
         self._print_msg('Mean flux of the star in the cube: %e ADU/A/s'%orb.utils.stats.robust_mean(re_spectrum))
         self._print_msg(
-            'Mean Flambda calibration: %e ergs/cm^2/[ADU]'%np.nanmean(flux_calibf[~np.isnan(th_spectrum)]))
+            'Mean Flambda calibration: %e ergs/cm^2/[ADU]'%np.nanmean(flambda[~np.isnan(th_spectrum)]))
 
         return std_cm1_axis, flux_calibf
         
@@ -6468,7 +6499,8 @@ class SourceExtractor(InterferogramMerger):
                       alignment_vector_1[ik+ijob,1]),
                 modules=("from orb.utils.astrometry import fit_star, sky_background_level, aperture_photometry, get_profile",
                          "from orb.astrometry import StarsParams",
-                         "import orb.astrometry",
+                         "import orb.core",
+		 	"import orb.astrometry",
                          "import orb.utils.image",
                          "import orb.utils.astrometry",
                          "import numpy as np",
