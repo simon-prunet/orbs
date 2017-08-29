@@ -5926,7 +5926,6 @@ class Spectrum(HDFCube):
                     ncpus = x_max - x_min - ii
 
                 # correct spectrum columns
-	    for ijob in range(ncpus):
                 jobs = [(ijob, job_server.submit(
                     _calibrate_spectrum_column, 
                     args=(
@@ -5945,7 +5944,8 @@ class Spectrum(HDFCube):
                              "import orb.utils.photometry",
                 	     "import orb.utils.vector",
                              "import orb.utils.fft",
-			      "import orb.core")))] 
+			      "import orb.core")))
+			for ijob in range(ncpus)] 
 
                 for ijob, job in jobs:
                     # corrected data comes in place of original data
