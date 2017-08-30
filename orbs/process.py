@@ -5699,11 +5699,16 @@ class Spectrum(HDFCube):
  		    spectrum_highres /= flux_corr
 
 		# Atmospheric extinction correction for the Airmass
-		nm_axis = orb.utils.spectrum.create_nm_axis(
-        STEP_NB, step, order, corr=corr).astype(float)
+
 		atm_trans = orb.utils.photometry.get_atmospheric_transmission(atm_ext_file_path, step, order, STEP_NB, airmass=airmass, corr=corr)
-                
-		spectrum_highres /= atm_trans
+		if (wavenumber):
+		    cm_axis = orb.utils.spectrum.nm2cm1(orb.utils.spectrum.create_nm_axis(STEP_NB, step, order, corr=corr).astype(float))
+                    atm_trans_function = scipy.interpolate.UnivariateSpline(cm_axis, atm_trans, s=0, k=3) 
+		else:
+		    nm_axis = orb.utils.spectrum.create_nm_axis(STEP_NB, step, order, corr=corr).astype(float)
+		    atm_trans_function = scipy.interpolate.UnivariateSpline(nm_axis, atm_trans, s=0, k=3)
+		atm_trans_vector = atm_trans_function(axis_corr)
+		spectrum_highres /= atm_trans_vector
 
                 # replacing nans by zeros before interpolation
                 nans = np.nonzero(np.isnan(spectrum_highres))
@@ -5948,7 +5953,8 @@ class Spectrum(HDFCube):
                              "import orb.utils.photometry",
                 	     "import orb.utils.vector",
                              "import orb.utils.fft",
-			      "import orb.core")))
+			     "import orb.core",
+			     "import scipy.interpolate")))
 			for ijob in range(ncpus)] 
 
                 for ijob, job in jobs:
