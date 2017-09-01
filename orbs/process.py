@@ -5599,9 +5599,8 @@ class Spectrum(HDFCube):
             999.4000244 0.01378122438
             999.2000122 0.002538740868
 
-	"""
-        atm_ext_file_path = self._get_atmospheric_extinction_file_path()
- 
+    """
+
         def _calibrate_spectrum_column(spectrum_col, filter_function,
                                        filter_min, filter_max,
                                        flux_calibration_function,
@@ -5610,10 +5609,11 @@ class Spectrum(HDFCube):
                                        step, order, wavenumber,
                                        spectral_calibration,
                                        base_axis_correction_coeff,
-                                       output_sz_coeff, STEP_NB, airmass, atm_ext_file_path, ME=.80):
+                                       output_sz_coeff, atm_trans_function, ME=.80):
             """
             
             """
+            global flux_corr
             INTERP_POWER = 30 * output_sz_coeff
             ZP_LENGTH = orb.utils.fft.next_power_of_two(
                 spectrum_col.shape[1] * INTERP_POWER)
@@ -5693,22 +5693,15 @@ class Spectrum(HDFCube):
                     # because filter function is prepared before. Can
                     # be reused to put nans.
                     spectrum_highres /= filter_corr
-                    
+
                 if flux_calibration_function is not None:
-       		    flux_corr = flux_calibration_function(axis_corr)
- 		    spectrum_highres /= flux_corr
+                    flux_corr = flux_calibration_function(axis_corr)
+                    spectrum_highres /= flux_corr
 
-		# Atmospheric extinction correction for the Airmass
 
-		atm_trans = orb.utils.photometry.get_atmospheric_transmission(atm_ext_file_path, step, order, STEP_NB, airmass=airmass, corr=corr)
-		if (wavenumber):
-		    cm_axis = orb.utils.spectrum.nm2cm1(orb.utils.spectrum.create_nm_axis(STEP_NB, step, order, corr=corr).astype(float))
-                    atm_trans_function = scipy.interpolate.UnivariateSpline(cm_axis, atm_trans, s=0, k=3) 
-		else:
-		    nm_axis = orb.utils.spectrum.create_nm_axis(STEP_NB, step, order, corr=corr).astype(float)
-		    atm_trans_function = scipy.interpolate.UnivariateSpline(nm_axis, atm_trans, s=0, k=3)
-		atm_trans_vector = atm_trans_function(axis_corr)
-		spectrum_highres /= atm_trans_vector
+                if atm_trans_function is not None:
+                    atm_trans_vector = atm_trans_function(axis_corr)
+                    spectrum_highres /= atm_trans_vector
 
                 # replacing nans by zeros before interpolation
                 nans = np.nonzero(np.isnan(spectrum_highres))
@@ -5769,7 +5762,9 @@ class Spectrum(HDFCube):
         else:
             base_axis_correction_coeff = 1.
         
-        
+        # Extinction file path
+        atm_ext_file_path = self._get_atmospheric_extinction_file_path()
+
         # Get filter parameters
         FILTER_STEP_NB = 4000
         FILTER_RANGE_THRESHOLD = 0.97
@@ -5787,10 +5782,10 @@ class Spectrum(HDFCube):
 
         if not wavenumber:
             filter_axis = orb.utils.spectrum.create_nm_axis(
-                FILTER_STEP_NB, step, order)
+                FILTER_STEP_NB, step, order, corr=base_axis_correction_coeff)
         else:
             filter_axis = orb.utils.spectrum.create_cm1_axis(
-                FILTER_STEP_NB, step, order)
+                FILTER_STEP_NB, step, order, corr=base_axis_correction_coeff)
 
         # prepare filter vector (smooth edges)
         filter_vector[:filter_min_pix] = 1.
@@ -5858,7 +5853,19 @@ class Spectrum(HDFCube):
         else:
             flux_calibration_function = None
 
-        # Get FFT parameters
+        # Get Atmospheric extinction correction for the Airmass. Axis is regular in wavelengths.
+
+        atm_trans = orb.utils.photometry.get_atmospheric_transmission(atm_ext_file_path, step, order, STEP_NB,
+                                                                          airmass=airmass, corr=base_axis_correction_coeff)
+        if (wavenumber):
+            cm_axis = orb.utils.spectrum.nm2cm1(
+                orb.utils.spectrum.create_nm_axis(STEP_NB, step, order, corr=base_axis_correction_coeff).astype(float))
+            atm_trans_function = interpolate.UnivariateSpline(cm_axis[::-1], atm_trans[::-1], s=0, k=3)
+        else:
+            nm_axis = orb.utils.spectrum.create_nm_axis(STEP_NB, step, order, corr=base_axis_correction_coeff).astype(float)
+            atm_trans_function = interpolate.UnivariateSpline(nm_axis, atm_trans, s=0, k=3)
+
+    # Get FFT parameters
         header = self.get_cube_header()
         if 'APODIZ' in header:
             apodization_function = header['APODIZ']
@@ -5947,15 +5954,15 @@ class Spectrum(HDFCube):
                         nm_laser, step, order, wavenumber,
                         spectral_calibration,
                         base_axis_correction_coeff,
-                        OUTPUT_SZ_COEFF,STEP_NB,airmass,atm_ext_file_path),
+                        OUTPUT_SZ_COEFF,atm_trans_function),
                     modules=("import numpy as np",
                              "import orb.utils.spectrum",
                              "import orb.utils.photometry",
-                	     "import orb.utils.vector",
+                             "import orb.utils.vector",
                              "import orb.utils.fft",
-			     "import orb.core",
-			     "import scipy.interpolate")))
-			for ijob in range(ncpus)] 
+                             "import orb.core",
+                             "import scipy.interpolate")))
+                        for ijob in range(ncpus)]
 
                 for ijob, job in jobs:
                     # corrected data comes in place of original data
@@ -6510,7 +6517,7 @@ class SourceExtractor(InterferogramMerger):
                 modules=("from orb.utils.astrometry import fit_star, sky_background_level, aperture_photometry, get_profile",
                          "from orb.astrometry import StarsParams",
                          "import orb.core",
-		 	"import orb.astrometry",
+            "import orb.astrometry",
                          "import orb.utils.image",
                          "import orb.utils.astrometry",
                          "import numpy as np",
