@@ -3465,7 +3465,7 @@ class Orbs(Tools):
         spectrum.export(spectrum_path, header=spectrum_header,
                         overwrite=self.overwrite, force_hdf5=True,
                         calibration_laser_map_path=calibration_laser_map_path,
-                        deep_fram_path=deep_frame_path)
+                        deep_frame_path=deep_frame_path)
 
     def export_standard_spectrum(self, camera_number, phase_correction=True,
                                  aperture_photometry=True,
