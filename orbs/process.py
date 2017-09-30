@@ -7093,7 +7093,7 @@ class PhaseMaps(Tools):
         phase_map = np.copy(self.phase_map_order_0_unwraped)
         # border points are removed
         mask = np.ones_like(phase_map, dtype=bool)
-        border = (self.dimx + self.dimy)/2. * BORDER 
+        border = int((self.dimx + self.dimy)/2. * BORDER) 
         mask[border:-border,border:-border:] = False
         mask[np.nonzero(phase_map == 0.)] = True
         phase_map[np.nonzero(mask)] = np.nan
