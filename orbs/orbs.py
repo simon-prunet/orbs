@@ -2453,7 +2453,10 @@ class Orbs(Tools):
         # get calibration laser map path
         calibration_laser_map_path = self._get_calibration_laser_map(
             camera_number)
-      
+
+        # get deep frame path
+        deep_frame_path = self.indexer.get_path('deep_frame', camera_number)
+
         ## Load phase maps and create phase coefficients vector
         phase_map_correction = False
 
@@ -3059,7 +3062,11 @@ class Orbs(Tools):
             # find the real star position
             std_x1, std_y1, fwhm_pix1 = self._find_standard_star(1)
             std_x2, std_y2, fwhm_pix2 = self._find_standard_star(2)
-            
+
+            # Get the modulation efficiency from the filter file
+            # to include it in the flux_calibration_coeff
+            ME = FilterFile(self.options['filter_name']).get_modulation_efficiency()
+
             if std_x1 is not None and std_x2 is not None:
                 flux_calibration_coeff = spectrum.get_flux_calibration_coeff(
                     self.options['standard_image_path_1.hdf5'],
@@ -3075,7 +3082,8 @@ class Orbs(Tools):
                     calibration_laser_map_path, 
                     self.config['CALIB_NM_LASER'],
                     flux_calibration_axis,
-                    flux_calibration_vector)
+                    flux_calibration_vector,
+                    ME)
     
         else:
             warnings.warn("Standard related options were not given or the name of the filter is unknown. Flux calibration coeff cannot be computed")
@@ -3093,13 +3101,16 @@ class Orbs(Tools):
             airmass_cube[i] = object_hdr['AIRMASS']
         airmass_mean = airmass_cube.mean()
 
-        std_cube = HDFCube(self.options["standard_image_path_1.hdf5"])
-        std_airmass_cube = np.zeros(std_cube.dimz)
+        if 'standard_image_path_1.hdf5' in self.options:
+            std_cube = HDFCube(self.options["standard_image_path_1.hdf5"])
+            std_airmass_cube = np.zeros(std_cube.dimz)
 
-        for i in range(0,std_cube.dimz):
-            std_hdr = std_cube.get_frame_header(i)
-            std_airmass_cube[i] = std_hdr['AIRMASS']
-        std_airmass_mean = std_airmass_cube.mean()
+            for i in range(0,std_cube.dimz):
+                std_hdr = std_cube.get_frame_header(i)
+                std_airmass_cube[i] = std_hdr['AIRMASS']
+            std_airmass_mean = std_airmass_cube.mean()
+        else:
+            std_airmass_mean = 1.0
 
             
         # Calibration
