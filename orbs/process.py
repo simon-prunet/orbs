@@ -30,7 +30,7 @@ __docformat__ = 'reStructuredText'
 import version
 __version__ = version.__version__
 
-from orb.core import Tools, Cube, ProgressBar, Standard, PhaseFile, FilterFile
+from orb.core import Tools, Cube, FDCube, ProgressBar, Standard, PhaseFile, FilterFile
 from orb.core import HDFCube, OutHDFCube, OutHDFQuadCube
 import orb.utils.fft
 import orb.utils.filters
@@ -183,7 +183,7 @@ class RawData(HDFCube):
 
         .. seealso:: :py:meth:`orb.utils.image.create_master_frame`
         """
-        bias_cube = Cube(bias_list_path,
+        bias_cube = FDCube(bias_list_path,
                          instrument=self.instrument,
                          ncpus=self.ncpus)
         logging.info('Creating Master Bias')
@@ -259,7 +259,7 @@ class RawData(HDFCube):
 
         .. seealso:: :py:meth:`orb.utils.image.create_master_frame`
         """
-        dark_cube = Cube(dark_list_path,
+        dark_cube = FDCube(dark_list_path,
                          instrument=self.instrument,
                          ncpus=self.ncpus)
         logging.info('Creating Master Dark')
@@ -348,7 +348,7 @@ class RawData(HDFCube):
 
         .. seealso:: :py:meth:`orb.utils.image.create_master_frame`
         """
-        flat_cube = Cube(flat_list_path,
+        flat_cube = FDCube(flat_list_path,
                          instrument=self.instrument,
                          ncpus=self.ncpus)
         logging.info('Creating Master Flat')
@@ -6268,10 +6268,10 @@ class Spectrum(HDFCube):
             std_corr = corr
             std_STEP_NB = STEP_NB
         else:
-            self._print_error(
+            raise StandardError(
                 'Integration time (EXPTIME and AIRMASS) keyword must be present in the header of the standard image {}'.format(
                     cube1.image_list[0]))
-        self._print_msg('Standard integration time: {}s'.format(std_exp_time))
+        logging.info('Standard integration time: {}s'.format(std_exp_time))
 
         # Apply the filter transmission to the theoritical spectrum of the standard
         th_spectrum *= filter_function
@@ -6431,7 +6431,7 @@ class Spectrum(HDFCube):
         re_spectrum[filter_max_pix:] = np.nan
 
         # Get standard spectrum in erg/cm^2/s/A
-        std = Standard(std_name, config_file_name=self.config_file_name,
+        std = Standard(std_name, instrument=self.instrument,
                        ncpus=self.ncpus)
         th_spectrum_axis, th_spectrum = std.get_spectrum(
             std_step, std_order,
@@ -6456,10 +6456,10 @@ class Spectrum(HDFCube):
             re_spectrum, th_spectrum)
         flambda = 1. / flux_calibf
 
-        self._print_msg(
+        logging.info(
             'Mean theoretical flux of the star: %e ergs/cm^2/A/s' % orb.utils.stats.robust_mean(th_spectrum))
-        self._print_msg('Mean flux of the star in the cube: %e ADU/A/s' % orb.utils.stats.robust_mean(re_spectrum))
-        self._print_msg(
+        logging.info('Mean flux of the star in the cube: %e ADU/A/s' % orb.utils.stats.robust_mean(re_spectrum))
+        logging.info(
             'Mean Flambda calibration: %e ergs/cm^2/[ADU]' % np.nanmean(flambda[~np.isnan(th_spectrum)]))
 
         return std_cm1_axis, flux_calibf
