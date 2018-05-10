@@ -5773,6 +5773,7 @@ class Spectrum(HDFCube):
                 # projected
                 if filter_function is not None:
 
+                    filter_corr = filter_function(axis_corr)
                     # filter_min_pix and max_pix are not used anymore
                     # because filter function is prepared before. Can
                     # be reused to put nans.
@@ -5896,13 +5897,6 @@ class Spectrum(HDFCube):
         filter_min = filter_axis[filter_min_pix]
         filter_max = filter_axis[filter_max_pix]
 
-        # Get modulation efficiency
-        modulation_efficiency = FilterFile(
-            filter_name).get_modulation_efficiency()
-
-        logging.info('Modulation efficiency: {}'.format(
-            modulation_efficiency))
-        
         # Get flux calibration function
         if flux_calibration_vector[0] is not None:
             (flux_calibration_axis,
@@ -6423,7 +6417,8 @@ class Spectrum(HDFCube):
         # Real spectrum is converted to ADU/A/s
         std_nm_axis_reg = orb.utils.spectrum.create_nm_axis(
             std_step_nb, std_step, std_order)
-        channel_A = np.abs(np.nanmean(np.diff(std_nm_axis_reg))) * 10.
+        # channel_A = np.abs(np.nanmean(np.diff(std_nm_axis_reg))) * 10.
+        channel_A = std_nm_axis_reg[::-1]**2 / 1e6 # Spectrum is ordered in growing wavenumbers !!!
         re_spectrum /= channel_A
 
         # Remove portions outside the filter

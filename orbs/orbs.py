@@ -3065,7 +3065,14 @@ class Orbs(Tools):
 
             # Get the modulation efficiency from the filter file
             # to include it in the flux_calibration_coeff
-            ME = FilterFile(self.options['filter_name']).get_modulation_efficiency()
+            # Try to get it first from job file, then if not present from filter file
+
+            ME = self.config["MODULATION_EFFICIENCY"]
+            if (ME > 0.0): # valid ME from job file
+                logging.info('Modulation efficiency from job file: {}'.format(ME))
+            else:
+                ME = FilterFile(self.options['filter_name']).get_modulation_efficiency()
+                logging.info('Modulation efficiency form filter file: {}'.format(ME))
 
             if std_x1 is not None and std_x2 is not None:
                 flux_calibration_coeff = spectrum.get_flux_calibration_coeff(
