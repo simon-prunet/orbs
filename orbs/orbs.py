@@ -3043,16 +3043,28 @@ class Orbs(Tools):
         (flux_calibration_axis,
          flux_calibration_vector) = (None, None)
 
+        # Get the modulation efficiency from the filter file
+        # to include it in the flux_calibration_coeff
+        # Try to get it first from job file, then if not present from filter file
+
+        ME = self.config["MODULATION_EFFICIENCY"]
+        if (ME > 0.0):  # valid ME from job file
+            logging.info('Modulation efficiency from job file: {}'.format(ME))
+        else:
+            ME = FilterFile(self.options['filter_name']).get_modulation_efficiency()
+            logging.info('Modulation efficiency form filter file: {}'.format(ME))
+
         if 'standard_path' in self.options:
+            # NB: flux_calibration_vector is instrumental transmission x modulation efficiency
             std_path = self.options['standard_path']
             std_name = self._get_standard_name(std_path)
             (flux_calibration_axis,
              flux_calibration_vector) = spectrum.get_flux_calibration_vector(
                 std_path, std_name, self.options["filter_name"])
         else:
-            warnings.warn("Standard related options were not given or the name of the filter is unknown. Flux calibration vector cannot be computed")
+            raise StandardError("Observed standard spectrum was not specified. Flux calibration vector cannot be computed. Aborting.")
 
-        # Get flux calibraton coeff
+        # Get flux calibration coeff
         flux_calibration_coeff = None
         if 'standard_image_path_1.hdf5' in self.options:
             
@@ -3062,17 +3074,6 @@ class Orbs(Tools):
             # find the real star position
             std_x1, std_y1, fwhm_pix1 = self._find_standard_star(1)
             std_x2, std_y2, fwhm_pix2 = self._find_standard_star(2)
-
-            # Get the modulation efficiency from the filter file
-            # to include it in the flux_calibration_coeff
-            # Try to get it first from job file, then if not present from filter file
-
-            ME = self.config["MODULATION_EFFICIENCY"]
-            if (ME > 0.0): # valid ME from job file
-                logging.info('Modulation efficiency from job file: {}'.format(ME))
-            else:
-                ME = FilterFile(self.options['filter_name']).get_modulation_efficiency()
-                logging.info('Modulation efficiency form filter file: {}'.format(ME))
 
             if std_x1 is not None and std_x2 is not None:
                 flux_calibration_coeff = spectrum.get_flux_calibration_coeff(
@@ -3135,7 +3136,8 @@ class Orbs(Tools):
             wavenumber=self.options['wavenumber'],
             standard_header = self._get_calibration_standard_fits_header(),
             spectral_calibration=self.options['spectral_calibration'],
-            filter_correction=filter_correction, airmass=airmass_mean, std_airmass=std_airmass_mean)
+            filter_correction=filter_correction, airmass=airmass_mean,
+            std_airmass=std_airmass_mean)
         
         perf_stats = perf.print_stats()
         del perf, spectrum

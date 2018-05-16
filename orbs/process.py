@@ -5689,8 +5689,7 @@ class Spectrum(HDFCube):
                                        step, order, wavenumber,
                                        spectral_calibration,
                                        base_axis_correction_coeff,
-                                       output_sz_coeff, atm_trans_function,
-                                       ME=.80):
+                                       output_sz_coeff, atm_trans_function):
             """
             
             """
@@ -5723,14 +5722,17 @@ class Spectrum(HDFCube):
                     result_col[icol,:] = np.nan
                     continue
 
-                # converting to ADU/s/A
+                # Conversions to dS/dlambda
                 ispectrum = np.copy(spectrum_col[icol,:])
                 
                 axis_corr_cm1_lowres = orb.utils.spectrum.create_cm1_axis(
                         spectrum_col.shape[1],
                         step, order, corr=corr).astype(float)
-                ispectrum = orb.utils.photometry.convert_cm1_flux2fluxdensity(
-                    ispectrum, axis_corr_cm1_lowres)
+                # First convert to dS/dsigma. Only makes sense if wavenumber=True
+                channel_cm1 = orb.cutils.get_cm1_axis_step(ispectrum.shape[0],step,corr=corr)
+                ispectrum /= channel_cm1
+                # Now convert to dS/dlambda. Only makes sense if wavenumber=True
+                ispectrum *= axis_corr_cm1_lowres**2 / 1e8
 
                 # pure fft interpolation of the input spectrum
                 # (i.e. perfect interpolation as long as the imaginary
@@ -5797,13 +5799,15 @@ class Spectrum(HDFCube):
                 # spectrum projection onto its output axis (if output
                 # in nm or calibrated)
                 if spectral_calibration or not wavenumber:
-                    result_col[icol,:] = (
+                    spectrum_final = (
                         orb.utils.vector.interpolate_axis(
                             spectrum_highres, axis_proj, 1,
                             old_axis=axis_corr))
                     
                 else:
-                    result_col[icol,:] = spectrum_highres
+                    spectrum_final = spectrum_highres
+
+                result_col[icol,:] = spectrum_final
 
             return result_col.real
             ### return result_col ### DEBUG
@@ -5901,29 +5905,27 @@ class Spectrum(HDFCube):
         if flux_calibration_vector[0] is not None:
             (flux_calibration_axis,
              flux_calibration_vector) = flux_calibration_vector
-                       
+
             if not wavenumber:
                 flux_calibration_axis = orb.utils.spectrum.cm12nm(
                     flux_calibration_axis)[::-1]
                 flux_calibration_vector = flux_calibration_vector[::-1]
-                
-            flux_calibration_function = interpolate.UnivariateSpline(
-                flux_calibration_axis, flux_calibration_vector, s=0, k=1)
     
             # adjust flux calibration vector with flux calibration coeff
             if flux_calibration_coeff is not None:
-                mean_flux_calib_vector = orb.utils.photometry.compute_mean_star_flux(
-                    flux_calibration_function(filter_axis.astype(float)),
-                    filter_vector)
-                logging.info('Mean flux calib vector before adjustment with flux calibration coeff: {} '.format(mean_flux_calib_vector))
-                 # ME must be taken into account only when using the
-                 # flux calibration coeff derived from std images
+                 # ME is already included in flux_calibration_vector
                 flux_calibration_vector *= flux_calibration_coeff
                 flux_calibration_function = interpolate.UnivariateSpline(
                     flux_calibration_axis, flux_calibration_vector, s=0, k=3)
             else:
                 flux_calibration_function = interpolate.UnivariateSpline(
                     flux_calibration_axis, flux_calibration_vector, s=0, k=3)
+
+            mean_flux_calib_vector = orb.utils.photometry.compute_mean_star_flux(
+                flux_calibration_function(filter_axis.astype(float)),
+                filter_vector)
+            logging.info('Mean flux calib vector before adjustment with flux calibration coeff: {} '.format(
+                mean_flux_calib_vector))
 
         self.write_fits(self._get_flux_calibration_function_path(),
                         flux_calibration_function(np.float64(flux_calibration_axis)),
@@ -6239,16 +6241,17 @@ class Spectrum(HDFCube):
         # Get standard spectrum in erg/cm^2/s/A
         std = Standard(std_name, instrument=self.instrument,
                        ncpus=self.ncpus)
+        # Here th_spectrum_axis is regular in cm1 (wavenumber=True)
         th_spectrum_axis, th_spectrum = std.get_spectrum(
             step, order, STEP_NB,
-            wavenumber=False, corr=corr)
+            wavenumber=True, corr=corr)
 
         # get filter function
-        (filter_function,
+        (filter_vector,
          filter_min_pix, filter_max_pix) = (
             FilterFile(filter_name).get_filter_function(
                 step, order, STEP_NB,
-                wavenumber=False, corr=corr))
+                wavenumber=True, corr=corr))
 
         # Read information from the header of the first image on the list
         cube1 = HDFCube(std_image_cube_path_1)
@@ -6268,14 +6271,19 @@ class Spectrum(HDFCube):
         logging.info('Standard integration time: {}s'.format(std_exp_time))
 
         # Apply the filter transmission to the theoritical spectrum of the standard
-        th_spectrum *= filter_function
+        th_spectrum *= filter_vector
+        # flux_calibration_vector includes ME. Hence for unmodulated light, we need to
+        # divide by ME to eliminate it.
         th_spectrum /= ME
 
-        # Calculate the correction for the atmospheric extinction
+        # Calculate the correction for the atmospheric extinction.
+        # Beware this is computed on a regular nm axis, hence the interpolation
         atm_trans = orb.utils.photometry.get_atmospheric_transmission(self._get_atmospheric_extinction_file_path()
                                                                       , step, order, std_STEP_NB, airmass=std_airmass,
                                                                       corr=std_corr)
-
+        cm_axis_irreg = orb.utils.spectrum.nm2cm1(orb.utils.spectrum.create_nm_axis(std_STEP_NB,step,order,corr=std_corr))
+        atm_trans_function = interpolate.UnivariateSpline(cm_axis_irreg[::-1].astype(np.float64),atm_trans[::-1],s=0,k=3)
+        atm_trans = atm_trans_function(th_spectrum_axis.astype(np.float64))
         # Apply the atmospheric extinction to the theoritical spectrum using the airmass of the observation
         th_spectrum *= atm_trans
 
@@ -6296,7 +6304,9 @@ class Spectrum(HDFCube):
 
         # convert it to erg/cm2/s by summing all the photons
         # Compute simulated flux in counts/s
-        th_spectrum = np.diff(th_spectrum_axis) * 10. * th_spectrum[:-1]
+        # First convert th_spectrum from ergs/s/cm2/A into ergs/s/cm2/cm1
+        th_spectrum *= 10 * 1e7/th_spectrum_axis**2
+        th_spectrum = np.diff(th_spectrum_axis) * th_spectrum[:-1]
         std_th_flux = np.nansum(th_spectrum)
 
         logging.info('Simulated star flux in one camera: {} ADU/s'.format(
@@ -6360,6 +6370,8 @@ class Spectrum(HDFCube):
         The spectrum to be calibrated can then be simply multiplied by
         the returned vector to be converted in [erg/cm^2]
 
+        Note that it contains the modulation efficiency.
+
         :param std_spectrum_path: Path to the standard spectrum
 
         :param std_name: Name of the standard
@@ -6398,8 +6410,8 @@ class Spectrum(HDFCube):
         std_corr = hdr['AXCORR0']
 
         std_step_nb = re_spectrum.shape[0]
-        std_nm_axis = orb.utils.spectrum.create_nm_axis_ireg(
-            std_step_nb, std_step, std_order, corr=std_corr)
+        #std_nm_axis = orb.utils.spectrum.create_nm_axis_ireg(
+        #    std_step_nb, std_step, std_order, corr=std_corr)
         std_cm1_axis = orb.utils.spectrum.create_cm1_axis(
             std_step_nb, std_step, std_order, corr=std_corr)
 
@@ -6408,18 +6420,18 @@ class Spectrum(HDFCube):
         re_spectrum /= std_exp_time * std_step_nb  # ADU -> ADU/s
 
         # Get the filter function and min,max wavelength pixels values
-        (filter_function,
+        (filter_vector,
          filter_min_pix, filter_max_pix) = (
             FilterFile(filter_name).get_filter_function(
                 std_step, std_order, re_spectrum.shape[0],
                 corr=std_corr, wavenumber=True))
 
-        # Real spectrum is converted to ADU/A/s
-        std_nm_axis_reg = orb.utils.spectrum.create_nm_axis(
-            std_step_nb, std_step, std_order)
-        # channel_A = np.abs(np.nanmean(np.diff(std_nm_axis_reg))) * 10.
-        channel_A = std_nm_axis_reg[::-1]**2 / 1e6 # Spectrum is ordered in growing wavenumbers !!!
-        re_spectrum /= channel_A
+        # channel size in cm1, to convert spectrum to density in ADU/s/cm1
+        channel_cm1 = orb.cutils.get_cm1_axis_step(std_step_nb,std_step,corr=std_corr)
+        re_spectrum /= channel_cm1
+        # Now convert in density per angstroem
+        convert = std_cm1_axis**2 / 1e8 # nu**2/1e7 / 10
+        re_spectrum *= convert
 
         # Remove portions outside the filter
         re_spectrum[:filter_min_pix] = np.nan
@@ -6428,6 +6440,7 @@ class Spectrum(HDFCube):
         # Get standard spectrum in erg/cm^2/s/A
         std = Standard(std_name, instrument=self.instrument,
                        ncpus=self.ncpus)
+        # Here th_spectrum_axis is regular in cm1 (wavenumber=True)
         th_spectrum_axis, th_spectrum = std.get_spectrum(
             std_step, std_order,
             re_spectrum.shape[0], wavenumber=True,
@@ -6436,26 +6449,30 @@ class Spectrum(HDFCube):
         th_spectrum[np.nonzero(np.isnan(re_spectrum))] = np.nan
 
         # Correction for the atmospheric extinction
+        # Beware that it is computed on a regularly sampled nm axis, hence the interpolation
         atm_trans = orb.utils.photometry.get_atmospheric_transmission(
             self._get_atmospheric_extinction_file_path(), std_step, std_order, std_step_nb, airmass=std_airmass,
             corr=std_corr)
+        cm_axis_irreg = orb.utils.spectrum.nm2cm1(orb.utils.spectrum.create_nm_axis(std_step_nb,std_step,std_order,corr=std_corr))
+        atm_trans_function=interpolate.UnivariateSpline(cm_axis_irreg[::-1].astype(np.float64),atm_trans[::-1],s=0,k=3)
+        atm_trans = atm_trans_function(th_spectrum_axis.astype(np.float64))
 
         # Correct the spectrum for the atmospheric extinction with the airmass of the observation
         th_spectrum *= atm_trans
 
         # Correct the filter transmission
-        th_spectrum *= filter_function
+        th_spectrum *= filter_vector
 
         # fit model * polynomial to adjust model and spectrum
         flux_calibf = orb.utils.photometry.fit_std_spectrum(
             re_spectrum, th_spectrum)
         flambda = 1. / flux_calibf
 
-        logging.info(
-            'Mean theoretical flux of the star: %e ergs/cm^2/A/s' % orb.utils.stats.robust_mean(th_spectrum))
-        logging.info('Mean flux of the star in the cube: %e ADU/A/s' % orb.utils.stats.robust_mean(re_spectrum))
-        logging.info(
-            'Mean Flambda calibration: %e ergs/cm^2/[ADU]' % np.nanmean(flambda[~np.isnan(th_spectrum)]))
+        #logging.info(
+        #    'Mean theoretical flux of the star: %e ergs/cm^2/A/s' % orb.utils.stats.robust_mean(th_spectrum))
+        #logging.info('Mean flux of the star in the cube: %e ADU/A/s' % orb.utils.stats.robust_mean(re_spectrum))
+        #logging.info(
+        #    'Mean Flambda calibration: %e ergs/cm^2/[ADU]' % np.nanmean(flambda[~np.isnan(th_spectrum)]))
 
         return std_cm1_axis, flux_calibf
 
