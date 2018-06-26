@@ -223,10 +223,14 @@ def main(args):
             ##
             w, irange = orb.utils.filters.compute_weights(
                 calib_map[ii,ij], nm_laser, dimz,
-                step, order, 0.15, filter_min_cm1, filter_max_cm1)
+                step, order, 0.02, filter_min_cm1, filter_max_cm1)
 
-            iphase[:int(irange[0])] = np.nan
-            iphase[int(irange[1]):] = np.nan
+            # Take margin into account for valid phase measurement. Values outside of the margin will be
+            # extrapolated, using a smoothness constraint in the spline interpolation to control it (see orb.core.PhaseFile)
+            bad = np.where(w<0.5)
+            iphase[bad] = np.nan
+            #iphase[:int(irange[0])] = np.nan
+            #iphase[int(irange[1]):] = np.nan
 
             final_phase_cube[ii-xmin, ij-ymin, :] = iphase
 
