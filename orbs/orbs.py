@@ -1307,7 +1307,7 @@ class Orbs(Tools):
                           target_radec=target_radec, target_xy=target_xy,
                           wcs_rotation=wcs_rotation,
                           instrument=self.instrument,
-                          ncpus=self.ncpus, sip=sip)
+                          ncpus=self.ncpus, sip=sip, detect_stack=self.config['DETECT_STACK'])
 
 
     def _get_interfero_cube_path(self, camera_number, corrected=False):
@@ -3104,10 +3104,12 @@ class Orbs(Tools):
         object_cube = HDFCube(self.options["image_list_path_1.hdf5"])
         airmass_cube = np.zeros(object_cube.dimz)
 
+        # Use minimum airmass of the science cube. This is coherent
+        # with the normalization of the transmission vector at its maximum
         for i in range(0,object_cube.dimz):
             object_hdr = object_cube.get_frame_header(i)
             airmass_cube[i] = object_hdr['AIRMASS']
-        airmass_mean = airmass_cube.mean()
+        airmass_min = airmass_cube.min()
 
         if 'standard_image_path_1.hdf5' in self.options:
             std_cube = HDFCube(self.options["standard_image_path_1.hdf5"])
@@ -3136,7 +3138,7 @@ class Orbs(Tools):
             wavenumber=self.options['wavenumber'],
             standard_header = self._get_calibration_standard_fits_header(),
             spectral_calibration=self.options['spectral_calibration'],
-            filter_correction=filter_correction, airmass=airmass_mean,
+            filter_correction=filter_correction, airmass=airmass_min,
             std_airmass=std_airmass_mean)
         
         perf_stats = perf.print_stats()
