@@ -4574,8 +4574,10 @@ class InterferogramMerger(Tools):
             
             return median_vector
 
-        SMOOTH_DEG = 0 # number of pixels used on each side to
-                       # smooth the transmission vector
+        SMOOTH_DEG = 40 # number of pixels used on each side to
+                       # smooth the transmission vector. This is only used
+                       # to normalize the transmission vector. smooth_vector keyword
+                       # is ineffective for now.
 
         SMOOTH_RATIO_EXT = 0.05 # Ratio of the number of pixels over
                                 # the vector length used to smooth the
@@ -4936,14 +4938,13 @@ class InterferogramMerger(Tools):
                 transmission_vector, bad_value=0., polyfit=True, deg=3)
             
         # Transmission vector smoothing
-        if smooth_vector:
-            if SMOOTH_DEG > 0:
-                transmission_vector = orb.utils.vector.smooth(transmission_vector,
-                                                       deg=SMOOTH_DEG)
+        if SMOOTH_DEG > 0:
+            transmission_vector_tmp = orb.utils.vector.smooth(transmission_vector,
+                                                             deg=SMOOTH_DEG)
 
         # Normalization of the star transmission vector to 1.5% clip
-        nz = np.nonzero(transmission_vector)
-        max_trans = orb.cutils.part_value(transmission_vector[nz], 0.985)
+        nz = np.nonzero(transmission_vector_tmp)
+        max_trans = orb.cutils.part_value(transmission_vector_tmp[nz], 0.985)
         transmission_vector[nz] /= max_trans
 
         if NO_TRANSMISSION_CORRECTION:
@@ -5914,7 +5915,7 @@ class Spectrum(HDFCube):
             # adjust flux calibration vector with flux calibration coeff
             if flux_calibration_coeff is not None:
                  # ME is already included in flux_calibration_vector
-                flux_calibration_vector *= flux_calibration_coeff
+                flux_calibration_vector /= flux_calibration_coeff
                 flux_calibration_function = interpolate.UnivariateSpline(
                     flux_calibration_axis, flux_calibration_vector, s=0, k=3)
             else:
@@ -6232,11 +6233,11 @@ class Spectrum(HDFCube):
 
         ## Compute standard flux in erg/cm2/s/A
 
-        # compute correction coeff from angle at center of the frame
+        # compute correction coeff from angle at the standard star position
         calibration_laser_map = self.read_fits(calibration_laser_map_path)
         corr = calibration_laser_map[
-            calibration_laser_map.shape[0]/2,
-            calibration_laser_map.shape[1]/2] / nm_laser
+            std_pos_1[0],
+            std_pos_1[1]] / nm_laser
         
         # Get standard spectrum in erg/cm^2/s/A
         std = Standard(std_name, instrument=self.instrument,
