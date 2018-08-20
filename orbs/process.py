@@ -6236,8 +6236,8 @@ class Spectrum(HDFCube):
         # compute correction coeff from angle at the standard star position
         calibration_laser_map = self.read_fits(calibration_laser_map_path)
         corr = calibration_laser_map[
-            std_pos_1[0],
-            std_pos_1[1]] / nm_laser
+            int(std_pos_1[0]),
+            int(std_pos_1[1])] / nm_laser
         
         # Get standard spectrum in erg/cm^2/s/A
         std = Standard(std_name, instrument=self.instrument,
@@ -6466,7 +6466,7 @@ class Spectrum(HDFCube):
 
         # fit model * polynomial to adjust model and spectrum
         flux_calibf = orb.utils.photometry.fit_std_spectrum(
-            re_spectrum, th_spectrum)
+            re_spectrum, th_spectrum,polydeg=2)
         flambda = 1. / flux_calibf
 
         #logging.info(
@@ -6562,10 +6562,13 @@ class SourceExtractor(InterferogramMerger):
             photomA = [fit['aperture_flux'] for fit in fit_resA]
             photomB = [fit['aperture_flux'] for fit in fit_resB]
                 
-            return (photomA - modulation_ratio * photomB,
-                    photomA + modulation_ratio * photomB,
+            #return (photomA - modulation_ratio * photomB,
+            #        photomA + modulation_ratio * photomB,
+            #        ifwhm_pix)
+            return (photomA - photomB / modulation_ratio,
+                    photomA + photomB / modulation_ratio,
                     ifwhm_pix)
-        
+
         
         MERGE_BOX_SZ_COEFF = 7        
 
@@ -6660,6 +6663,9 @@ class SourceExtractor(InterferogramMerger):
             framesB = self.cube_B.get_data(0, self.cube_B.dimx,
                                            0, self.cube_B.dimy,
                                            ik, ik+ncpus, silent=True)
+            if (ncpus==1): #Unsqueeze last dimension
+                framesA = np.expand_dims(framesA,axis=2)
+                framesB = np.expand_dims(framesB,axis=2)
 
             # get stars photometry for each frame
             jobs = [(ijob, job_server.submit(
