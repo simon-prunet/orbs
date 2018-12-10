@@ -3452,7 +3452,7 @@ class JobFile(OptionFile):
             try:
                 from orbdb.core import OrbDB
                 self.db = OrbDB('sitelle', **kwargs)
-            except ImportError, e:
+            except StandardError as e:
                 warnings.warn('Orbdb import error: {}'.format(e))
                 self.db = None
 
