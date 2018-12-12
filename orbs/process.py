@@ -3392,6 +3392,17 @@ class Interferogram(HDFCube):
 
         job_server, ncpus = self._init_pp_server()
         progress = ProgressBar(cube_bin.shape[0])
+
+        ## DEBUG
+        # for ii in range(0, cube_bin.shape[0]):
+        #     order0_map[ii,:], order0_err_map[ii,:] = optimize_phase_in_column(cube_bin[ii,:,:],
+        #                                                                      step, order, zpd_shift,
+        #                                                                      phase_maps[1:], ii,
+        #                                                                      calibration_laser_map[ii,:], nm_laser,
+        #                                                                      filter_min_cm1, filter_max_cm1, phf)
+
+        ## END DEBUG
+
         for ii in range(0, cube_bin.shape[0], ncpus):
             progress.update(ii, info='Computing order 0')
             
@@ -6338,10 +6349,12 @@ class Spectrum(HDFCube):
         # find star around std_x1, std_y1:
         std_x1, std_y1 =_get_std_position(
             master_im1, BOX_SIZE, std_x1, std_y1)
+        logging.info('Position of the standard star in camera 1 is {},{}'.format(std_x1,std_y1))
         # find star around std_x2, std_y2:
         std_x2, std_y2 =_get_std_position(
             master_im2, BOX_SIZE, std_x2, std_y2)
-    
+        logging.info('Position of the standard star in camera 2 is {},{}'.format(std_x2,std_y2))
+
         # photometry
         std_flux1, std_flux_err1 = _get_photometry(
             master_im1, std_x1, std_y1, fwhm_pix, std_exp_time)
