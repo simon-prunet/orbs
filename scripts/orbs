@@ -217,12 +217,10 @@ def start(args, resume=False):
     if np.sum([args.flat, args.standard, args.stars, args.laser, args.raw, args.sources, args.extphase, args.nophase, args.phasecube]) > 1:
         raise StandardError("only one special target (flat, standard, laser, stars, raw, sources, extphase, nophase, phasecube) can be choosen")
         sys.exit(2)
-    if args.flat: 
-	    target = 'flat'
-	    args.nophase = True
+    if args.flat: target = 'flat'
     elif args.standard:
         target = 'standard'
-        # args.nophase = True 
+        # args.nophase = True
     elif args.laser: target = 'laser'
     elif args.stars: target = 'stars'
     elif args.nostar: target = 'nostar'
@@ -549,8 +547,8 @@ def add_all_operations(instrument_parser, epilog, epilog_steps):
 
 if __name__ == "__main__":
 
-    import pydevd
-    pydevd.settrace('localhost', port=6666, stdoutToServer=True, stderrToServer=True)
+    # import pydevd
+    # pydevd.settrace('localhost', port=6666, stdoutToServer=True, stderrToServer=True)
 
     """Main entrance of the script.
     
