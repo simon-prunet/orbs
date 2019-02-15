@@ -455,7 +455,7 @@ class RawData(HDFCube):
                             dark_current_level=dark_current_level,
                             tuning_parameters=self._tuning_parameters,
                             instrument=self.instrument,
-                            ncpus=self.ncpus)
+                            ncpus=self.ncpus, box_size_coeff=12)
         astrom.load_star_list(star_list_path)
 
         # get alignment vectors
@@ -6852,7 +6852,18 @@ class SourceExtractor(InterferogramMerger):
                 if optimize_phase:
                     guess = np.array(coeffs_list)
                     guess.fill(0.)
-                    
+
+                    if (not os.path.exists(phf.improved_path)):
+                        # Rough guess for order 1 phase
+                        interf_fft = orb.utils.fft.transform_interferogram(
+                            interf, 1., 1., step, order, '2.0', zpd_shift,
+                            wavenumber=True,
+                            ext_phase=np.zeros_like(interf),
+                            phase_correction=True,
+                            return_complex=True)
+                        rough_phase = np.angle(interf_fft)
+                        guess[1] = np.median(np.diff(rough_phase))
+
                     ext_phase = orb.utils.fft.optimize_phase(
                         interf, step, order, zpd_shift,
                         nm_laser_obs, nm_laser, guess=guess,
