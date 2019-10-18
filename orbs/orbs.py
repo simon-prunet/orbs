@@ -649,7 +649,7 @@ class Orbs(Tools):
         # automatically
         if target == 'laser':
             self.options['object_name'] = 'LASER'
-            self.options['filter_name'] = 'None'
+            self.options['filter_name'] = 'C3'
             if 'order' not in self.options:
                 self.options['order'] = self.config['CALIB_ORDER']
             if 'step' not in self.options:
@@ -1220,7 +1220,10 @@ class Orbs(Tools):
         cube.params['wcs_rotation'] = wcs_rotation
 
         # load SIP file in ORB's data/ folder
-        sip = self.load_sip(self._get_sip_file_path(camera_number))
+        try:
+           sip = self.load_sip(self._get_sip_file_path(camera_number))
+        except:
+           sip = None
 
         return cube.get_astrometry(sip=sip)
 
@@ -2409,7 +2412,7 @@ class Orbs(Tools):
         try:
             # register std frame
             std_correct_wcs = std_astrom.register(
-                full_deep_frame=True, realign=False)
+                full_deep_frame=True, realign=True)
             # get std_x and std_y
             std_x, std_y = std_correct_wcs.wcs_world2pix(std_ra, std_dec, 0)
 
@@ -2605,23 +2608,22 @@ class Orbs(Tools):
 
         # Init SourceExtractor class
         self.indexer.set_file_group('merged')
-        
+        params = dict(self.options)
+        params['wcs_rotation'] = self._get_wcs_rotation(0)
+ 
         sex = SourceExtractor(
             interf_cube_path_1, interf_cube_path_2,
             bin_A=bin_cam_1, bin_B=bin_cam_2,
-            pix_size_A=self.config["PIX_SIZE_CAM1"],
-            pix_size_B=self.config["PIX_SIZE_CAM2"],
             data_prefix=self._get_data_prefix(0),
             project_header=self._get_project_fits_header(0),
             cube_A_project_header=self._get_project_fits_header(1),
             cube_B_project_header=self._get_project_fits_header(2),
-            alignment_coeffs=alignment_coeffs,
             overwrite=self.overwrite,
             tuning_parameters=self.tuning_parameters,
             indexer=self.indexer,
             instrument=self.instrument,
             ncpus=self.ncpus,
-            params=self.options,
+            params=params,
             config=self.config)
 
         perf = Performance(sex.cube_B, "Extraction of source interferograms", 0,
@@ -2737,12 +2739,15 @@ class Orbs(Tools):
                 
 
         # get calibration laser map path
-        calibration_laser_map_path = self._get_calibration_laser_map(
-            camera_number)
-        
+        #calibration_laser_map_path = self._get_calibration_laser_map(
+        #    camera_number)
+        calibration_laser_map_path = self.options['calibration_laser_map_path']
+ 
         logging.info('Calibration laser map used: {}'.format(
             calibration_laser_map_path))
-            
+        params = dict(self.options)
+        params['wcs_rotation'] = self._get_wcs_rotation(0)    
+
         sex = SourceExtractor(
             self._get_interfero_cube_path(
                 camera_number, corrected=True),
@@ -2755,7 +2760,7 @@ class Orbs(Tools):
             indexer=self.indexer,
             instrument=self.instrument,
             ncpus=self.ncpus,
-            params=self.options,
+            params=params,
             config=self.config)
 
         sex.compute_source_spectra(

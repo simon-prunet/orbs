@@ -5134,7 +5134,7 @@ class Spectrum(HDFCube):
         
         BOX_SIZE = int(8 * fwhm_pix) + 1
         STEP_NB = 500
-        ERROR_FLUX_COEFF = 1.5
+        ERROR_FLUX_COEFF = 2 # Used to be 1.5. Changed to 2 to account for SN1 rapid losses since last mirror coating.
         
         logging.info('Computing flux calibration coeff')
         logging.info('Standard Name: %s'%std_name) 
