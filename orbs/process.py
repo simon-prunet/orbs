@@ -4829,7 +4829,7 @@ class Spectrum(HDFCube):
                 FILTER_STEP_NB, self.params.step, self.params.order)
         else:
             filter_axis = orb.utils.spectrum.create_cm1_axis(
-                FILTER_STEP_NB, self.params.step, self.params.order)
+                FILTER_STEP_NB, self.params.step, self.params.order, corr=base_axis_correction_coeff)
 
         # prepare filter vector (smooth edges)
         filter_vector[:filter_min_pix] = 1.
