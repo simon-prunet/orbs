@@ -2424,7 +2424,9 @@ class Interferogram(HDFCube):
                 iinterf = Interferogram(
                     iinterf_data, params,
                     calib_coeff=icalib_coeff)
-                
+               
+		iinterf.apodize(window_type) # ADDED BY SP 2020/02/21
+ 
                 ispectrum = iinterf.get_spectrum()
 
                 iphase = Phase(phase_maps_col[ij,:],
@@ -5134,7 +5136,7 @@ class Spectrum(HDFCube):
         
         BOX_SIZE = int(8 * fwhm_pix) + 1
         STEP_NB = 500
-        ERROR_FLUX_COEFF = 2 # Used to be 1.5. Changed to 2 to account for SN1 rapid losses since last mirror coating.
+        ERROR_FLUX_COEFF = 2.5 # Used to be 1.5. Changed to 2.5 to account for SN1 rapid losses since last mirror coating.
         
         logging.info('Computing flux calibration coeff')
         logging.info('Standard Name: %s'%std_name) 
